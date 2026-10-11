@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kinetic Voice Reactor</title>
+<style>
+:root{--bg:#d9e4cf;--hd:#ffffff;--in:#ffffff;--out:#e3ffcc;--tx:#10161c;--sub:#7b8b99;--ac:#3390ec;--dim:#b7c4cf;--rec:#e5484d;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0b121a;--hd:#17212b;--in:#182533;--out:#2b5278;--tx:#f3f6f9;--sub:#7f93a6;--ac:#5eb5f7;--dim:#4a6076}}
+:root[data-theme="dark"]{--bg:#0b121a;--hd:#17212b;--in:#182533;--out:#2b5278;--tx:#f3f6f9;--sub:#7f93a6;--ac:#5eb5f7;--dim:#4a6076}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--tx);font:15px/1.35 -apple-system,"SF Pro Text",Roboto,system-ui,sans-serif;overscroll-behavior:none}
+#app{height:100%;max-width:480px;margin:0 auto;display:flex;flex-direction:column;background:var(--bg)}
+header{display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--hd);box-shadow:0 1px 0 rgba(0,0,0,.08)}
+.av{width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,#f6a1c0,#a56cf0);flex:none}
+header b{display:block;font-size:16px}header small{color:var(--sub);font-size:13px}
+#chat{flex:1;overflow-y:auto;padding:12px 10px;display:flex;flex-direction:column;gap:6px}
+.m{max-width:78%;padding:7px 11px;border-radius:16px;background:var(--in);box-shadow:0 1px 1px rgba(0,0,0,.08);word-wrap:break-word}
+.m.in{align-self:flex-start;border-bottom-left-radius:5px}
+.m.out{align-self:flex-end;background:var(--out);border-bottom-right-radius:5px}
+.tip{align-self:center;color:var(--sub);font-size:12.5px;text-align:center;padding:6px 14px;max-width:84%}
+.v{display:flex;gap:10px;align-items:center;width:min(310px,82%);max-width:none;padding:9px 12px 8px 9px}
+.pp{width:44px;height:44px;border-radius:50%;border:0;background:var(--ac);color:#fff;display:grid;place-items:center;flex:none;cursor:pointer;transition:transform .15s}
+.pp:active{transform:scale(.9)}
+.w{flex:1;min-width:0}
+canvas{display:block;width:100%;height:56px;touch-action:none;cursor:ew-resize}
+.mt{display:flex;justify-content:space-between;align-items:center;margin-top:2px;color:var(--sub);font-size:12.5px;font-variant-numeric:tabular-nums}
+.sp{border:0;border-radius:10px;background:var(--ac);color:#fff;font:600 11.5px/1 inherit;padding:4px 7px;cursor:pointer;min-width:34px;transition:transform .25s cubic-bezier(.3,1.8,.5,1)}
+.sp.k{transform:scale(1.25)}
+footer{display:flex;gap:8px;align-items:center;padding:8px 10px;background:var(--hd)}
+footer input{flex:1;border:0;outline:0;background:var(--bg);color:var(--tx);border-radius:20px;padding:11px 15px;font:inherit}
+footer input::placeholder{color:var(--sub)}
+#mic{width:44px;height:44px;border-radius:50%;border:0;background:var(--ac);color:#fff;display:grid;place-items:center;cursor:pointer;flex:none}
+#mic.on{background:var(--rec);animation:pl 1s infinite}
+@keyframes pl{50%{box-shadow:0 0 0 10px rgba(229,72,77,.18)}}
+#toast{position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 70px);transform:translate(-50%,-20px);background:rgba(20,28,36,.92);color:#fff;padding:9px 15px;border-radius:14px;font-size:13px;opacity:0;pointer-events:none;transition:.3s;max-width:88%;text-align:center}
+#toast.s{opacity:1;transform:translate(-50%,0)}
+@media(prefers-reduced-motion:reduce){#mic.on{animation:none}}
+</style></head>
+<body>
+<div id="app">
+<header><div class="av"></div><div><b>Alicia Brown</b><small id="st">last seen just now</small></div></header>
+<div id="chat"></div>
+<footer><input id="in" placeholder="Message" autocomplete="off"><button id="mic" aria-label="Record voice message"></button><input type="file" id="fi" accept="audio/*" hidden></footer>
+</div>
+<div id="toast"></div>
+<script>
+const $=s=>document.querySelector(s),clamp=(x,a,b)=>Math.min(b,Math.max(a,x));
+const PLAY='<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',
+PAUSE='<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>',
+MIC='<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-3.1A7 7 0 0 0 19 11z"/></svg>',
+SEND='<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M3 20l18-8L3 4v6l12 2-12 2z"/></svg>';
+const N=48,RATES=[.5,1,1.5,2];
+let ac,cur=null,css={};
+const AC=()=>{if(!ac)ac=new(window.AudioContext||window.webkitAudioContext)();if(ac.state!=='running')ac.resume();return ac};
+function toast(t){const e=$('#toast');e.textContent=t;e.classList.add('s');clearTimeout(toast.t);toast.t=setTimeout(()=>e.classList.remove('s'),2600)}
+const fmt=s=>Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0');
+
+/* Synthetic "speech" so the demo works even where the mic is blocked */
+function synth(seed){
+  const sr=22050,dur=6.6,n=sr*dur|0,d=new Float32Array(n);let r=seed,t=.3;
+  const rnd=()=>(r=(r*16807)%2147483647)/2147483647;
+  while(t<dur-.9){
+    const syl=1+(rnd()*3|0);
+    for(let s=0;s<syl;s++){
+      const len=.14+rnd()*.12,f0=105+rnd()*70,f1=500+rnd()*450,f2=1400+rnd()*800,L=len*sr|0,k0=t*sr|0;
+      for(let i=0;i<L&&k0+i<n;i++){
+        const u=i/L,env=Math.pow(Math.sin(Math.PI*u),.8),f=f0*(1+.15*(.5-u)),ph=(k0+i)/sr*f;let v=0;
+        for(let h=1;h<=14;h++){const hf=h*f;v+=Math.sin(6.2832*ph*h)*(Math.exp(-Math.pow((hf-f1)/260,2))+.6*Math.exp(-Math.pow((hf-f2)/380,2))+.05)/Math.pow(h,.3)}
+        d[k0+i]+=v*env*.12+(rnd()-.5)*.02*env}
+      t+=len+.02}
+    t+=.2+rnd()*.38}
+  const b=AC().createBuffer(1,n,sr);b.copyToChannel(d,0);return b}
+
+class Voice{
+  constructor(buf,out){
+    this.buf=buf;this.dur=buf.duration;this.pos=0;this.rate=1;this.playing=false;this.sc=false;
+    this.stretch=0;this.fi=null;this.lastSnap=null;this.flash=0;this.lastG=0;this.lastPi=-1;this.src=null;
+    const d=buf.getChannelData(0),c=Math.floor(d.length/N),a=[];
+    for(let i=0;i<N;i++){let s=0;for(let j=0;j<c;j++){const x=d[i*c+j];s+=x*x}a.push(Math.sqrt(s/c))}
+    const mx=Math.max(...a,1e-6),so=[...a].sort((p,q)=>p-q),fl=so[Math.floor(N*.1)];this.amp=a.map(x=>Math.max(.07,Math.sqrt(Math.max(0,x-fl*.8)/(mx-fl*.8+1e-9))));
+    this.h=this.amp.map(()=>.05);this.v=this.amp.map(()=>0);
+    this.snaps=[];let run=-1;
+    const th=fl+(mx-fl)*.12;a.forEach((x,i)=>{if(x<th){if(run<0)run=i}else{if(run>=0&&run>0&&i-run>=1)this.snaps.push((run+i)/2/N);run=-1}});
+    const el=document.createElement('div');el.className='m v '+(out?'out':'in');
+    el.innerHTML='<button class="pp" aria-label="Play"></button><div class="w"><canvas></canvas><div class="mt"><span class="tm"></span><button class="sp">1×</button></div></div>';
+    $('#chat').appendChild(el);$('#chat').scrollTop=1e6;
+    this.cv=el.querySelector('canvas');this.g=this.cv.getContext('2d');this.pp=el.querySelector('.pp');this.tm=el.querySelector('.tm');this.sp=el.querySelector('.sp');
+    this.pp.innerHTML=PLAY;this.pp.onclick=()=>{AC();this.playing?this.pause():this.play()};
+    this.sp.onclick=()=>{this.setRate(RATES[(RATES.indexOf(this.rate)+1)%RATES.length]);this.kick()};
+    const c2=this.cv;
+    c2.addEventListener('pointerdown',e=>{AC();c2.setPointerCapture(e.pointerId);this.sc=true;this.was=this.playing;this.y0=e.clientY;this.moved=0;this.r0=this.rate;if(this.playing)this.pause(true);this.drag(e)});
+    c2.addEventListener('pointermove',e=>{if(this.sc)this.drag(e)});
+    const up=()=>{if(!this.sc)return;this.sc=false;this.fi=null;this.stretch=0;
+      const nr=RATES.reduce((p,q)=>Math.abs(q-this.rate)<Math.abs(p-this.rate)?q:p);this.rate=nr;this.sp.textContent=nr+'×';this.kick();this.play()};
+    c2.addEventListener('pointerup',up);c2.addEventListener('pointercancel',up);
+  }
+  kick(){this.sp.classList.add('k');setTimeout(()=>this.sp.classList.remove('k'),180)}
+  setRate(r){if(this.playing)this.rebase();this.rate=r;this.sp.textContent=r+'×';if(this.src)this.src.playbackRate.value=r}
+  rebase(){this.p0=this.pos;this.t0=ac.currentTime}
+  play(){
+    AC();if(cur&&cur!==this)cur.pause();cur=this;if(this.pos>=.995)this.pos=0;
+    const s=ac.createBufferSource();s.buffer=this.buf;s.playbackRate.value=this.rate;s.connect(ac.destination);
+    s.start(0,this.pos*this.dur);this.src=s;this.p0=this.pos;this.t0=ac.currentTime;this.playing=true;this.pp.innerHTML=PAUSE}
+  pause(){
+    if(this.src){try{this.src.stop()}catch(e){}this.src=null}
+    this.playing=false;this.pp.innerHTML=PLAY}
+  grain(){
+    const n=performance.now();if(n-this.lastG<55)return;this.lastG=n;AC();
+    const s=ac.createBufferSource(),g=ac.createGain(),t=ac.currentTime;s.buffer=this.buf;s.playbackRate.value=this.rate;
+    g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(.9,t+.012);g.gain.linearRampToValueAtTime(0,t+.11);
+    s.connect(g);g.connect(ac.destination);s.start(t,clamp(this.pos,0,.99)*this.dur,.12)}
+  drag(e){
+    const r=this.cv.getBoundingClientRect(),raw=clamp((e.clientX-r.left)/r.width,0,1),dy0=this.y0-e.clientY,dy=Math.sign(dy0)*Math.max(0,Math.abs(dy0)-50);
+    /* magnetic snap to pauses between words */
+    let p=raw,near=null;
+    for(const s of this.snaps){const d=raw-s;if(Math.abs(d)<.04){near=s;p=s+d*Math.pow(Math.abs(d)/.04,1.6)}}
+    if(near!==null&&Math.abs(raw-near)<.012){if(this.lastSnap!==near){this.lastSnap=near;this.flash=1;navigator.vibrate&&navigator.vibrate(10)}}
+    else if(this.lastSnap!==null&&Math.abs(raw-this.lastSnap)>.025)this.lastSnap=null;
+    if(Math.abs(p-this.pos)>.002)this.grain();
+    this.pos=p;this.fi=raw*N-.5;
+    /* pull up = faster, pull down = slower; bars stretch with the speed */
+    const nr=clamp(this.r0*Math.pow(2,dy/130),.5,2.5),ch=Math.abs(nr-this.rate)>.04;this.rate=nr;this.stretch=clamp(dy/170,-.5,1);if(ch)this.grain();
+    this.sp.textContent=this.rate.toFixed(1)+'×'}
+  step(dt){
+    if(this.playing){
+      this.pos=this.p0+(ac.currentTime-this.t0)*this.rate/this.dur;
+      if(this.pos>=1){this.pause();this.pos=0;this.lastPi=-1}
+      const pi=Math.floor(this.pos*N);
+      if(pi!==this.lastPi&&pi<N){this.lastPi=pi;this.v[pi]+=3.2*this.amp[pi]+1;if(pi>0)this.v[pi-1]+=1;if(pi<N-1)this.v[pi+1]+=1}}
+    const h=this.h,v=this.v;
+    for(let k=0;k<2;k++){const d=dt/2;
+      for(let i=0;i<N;i++){
+        let t=this.amp[i]*(1+this.stretch*.9);
+        if(this.fi!==null)t+=Math.exp(-(((i-this.fi)/3)**2))*.45;
+        const l=h[i-1]??h[i],rr=h[i+1]??h[i];
+        const a=230*(t-h[i])-14*v[i]+55*(l+rr-2*h[i]);
+        v[i]+=a*d}
+      for(let i=0;i<N;i++)h[i]+=v[i]*d}
+    this.flash*=.9}
+  draw(){
+    const c=this.cv,dpr=Math.min(devicePixelRatio||1,3),W=c.clientWidth,H=c.clientHeight;
+    if(c.width!==Math.round(W*dpr)){c.width=Math.round(W*dpr);c.height=Math.round(H*dpr)}
+    const g=this.g;g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,W,H);
+    const sx=W/N,y=H/2-3,ph=this.pos*N;g.lineCap='round';g.lineWidth=Math.max(2.2,sx*.56);
+    for(let i=0;i<N;i++){
+      const x=(i+.5)*sx,hh=clamp(this.h[i],.04,1.35)*H*.4,d=Math.abs(i+.5-ph);
+      g.strokeStyle=i+.5<=ph?css.ac:css.dim;g.globalAlpha=i+.5<=ph?1:.85;
+      g.beginPath();g.moveTo(x,y-hh);g.lineTo(x,y+hh);g.stroke();
+      if(d<3&&(this.playing||this.sc)){g.globalAlpha=.35*(1-d/3);g.strokeStyle=css.ac;g.lineWidth=g.lineWidth+3;g.beginPath();g.moveTo(x,y-hh);g.lineTo(x,y+hh);g.stroke();g.lineWidth=Math.max(2.2,sx*.56)}}
+    g.globalAlpha=1;
+    for(const s of this.snaps){const dd=Math.abs(this.pos-s),near=this.sc?Math.max(0,1-dd/.05):0;
+      g.fillStyle=css.ac;g.globalAlpha=.35+near*.65+(this.lastSnap===s?this.flash:0);
+      g.beginPath();g.arc(s*W,H-3,1.6+near*2.2+(this.lastSnap===s?this.flash*2:0),0,6.283);g.fill()}
+    g.globalAlpha=1;g.fillStyle=css.ac;g.beginPath();g.arc(this.pos*W,y,this.sc?7:4.5,0,6.283);g.fill();
+    this.tm.textContent=fmt(this.sc||this.playing||this.pos>0?this.pos*this.dur:this.dur)+(this.pos>0?' / '+fmt(this.dur):'')}
+}
+
+const voices=[];let last=performance.now(),fr=0;
+function readCss(){const s=getComputedStyle(document.documentElement);css.ac=s.getPropertyValue('--ac').trim();css.dim=s.getPropertyValue('--dim').trim()}
+function loop(now){
+  const dt=Math.min((now-last)/1000,1/30);last=now;if(fr++%30===0)readCss();
+  for(const v of voices){v.step(dt);v.draw()}requestAnimationFrame(loop)}
+function addVoice(buf,out){const v=new Voice(buf,out);voices.push(v);return v}
+function addText(t,out){const e=document.createElement('div');e.className='m '+(out?'out':'in');e.textContent=t;$('#chat').appendChild(e);$('#chat').scrollTop=1e6}
+
+/* Recording: tap mic to start, tap again to send */
+let rec=null,tick=null;const mic=$('#mic');mic.innerHTML=MIC;
+const decode=ab=>new Promise((res,rej)=>ac.decodeAudioData(ab,res,rej));
+mic.onclick=async()=>{
+  AC();
+  if($('#in').value.trim()){addText($('#in').value.trim(),true);$('#in').value='';mic.innerHTML=MIC;return}
+  if(rec){rec.stop();return}
+  try{
+    const s=await navigator.mediaDevices.getUserMedia({audio:true}),mr=new MediaRecorder(s),ch=[],t0=Date.now();rec=mr;
+    mic.classList.add('on');mic.innerHTML=SEND;
+    tick=setInterval(()=>{$('#in').placeholder='Recording '+fmt((Date.now()-t0)/1e3)+'  ·  tap to send'},200);
+    mr.ondataavailable=e=>ch.push(e.data);
+    mr.onstop=async()=>{
+      s.getTracks().forEach(t=>t.stop());clearInterval(tick);rec=null;mic.classList.remove('on');mic.innerHTML=MIC;$('#in').placeholder='Message';
+      try{addVoice(await decode(await new Blob(ch,{type:ch[0]&&ch[0].type}).arrayBuffer()),true)}
+      catch(e){toast('Could not read that recording. Sent a demo voice instead.');addVoice(synth(9),true)}};
+    mr.start();
+  }catch(e){toast('Mic is blocked here. Record or pick an audio clip instead.');$('#fi').click()}};
+$('#fi').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;try{AC();addVoice(await decode(await f.arrayBuffer()),true)}catch(x){toast('Could not read that audio file.')}};
+$('#in').addEventListener('input',e=>{if(!rec)mic.innerHTML=e.target.value.trim()?SEND:MIC});
+$('#in').addEventListener('keydown',e=>{if(e.key==='Enter')mic.onclick()});
+
+addText('Did you see the new exhibition?',false);
+addText('Not yet! Is it worth it?',true);
+addVoice(synth(11),false);
+const tip=document.createElement('div');tip.className='tip';
+tip.textContent='Drag the waveform to scrub. Dots are pauses between words, so the playhead snaps to them. Pull up to speed up, down to slow down. Tap the mic to record your own.';
+$('#chat').appendChild(tip);
+requestAnimationFrame(loop);
+</script>
+</body></html>
